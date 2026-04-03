@@ -143,9 +143,6 @@ export function BuildPage() {
   // Create task mutation
   const createTaskMutation = useMutation({
     mutationFn: (arch: Architecture) => {
-      if (!sessionReady) {
-        throw new Error('会话初始化中，请稍候');
-      }
       return apiClient.createTask(arch, imageName || undefined, imageTag || 'latest');
     },
     onSuccess: (task) => {
@@ -384,7 +381,6 @@ export function BuildPage() {
                     placeholder="my-app"
                     value={imageName}
                     onChange={(e) => setImageName(e.target.value)}
-                    className="h-11"
                   />
                   <p className="text-xs text-muted-foreground">
                     用于命名构建的镜像
@@ -399,7 +395,6 @@ export function BuildPage() {
                     placeholder="latest"
                     value={imageTag}
                     onChange={(e) => setImageTag(e.target.value)}
-                    className="h-11"
                   />
                   <p className="text-xs text-muted-foreground">
                     默认为 latest
@@ -447,15 +442,10 @@ export function BuildPage() {
                 <Button
                   size="lg"
                   onClick={handleCreateTask}
-                  disabled={createTaskMutation.isPending || !sessionReady}
+                  disabled={!dockerfile || createTaskMutation.isPending}
                   className="w-full sm:w-auto h-12 px-8 text-base shadow-lg shadow-primary/25"
                 >
-                  {!sessionReady ? (
-                    <>
-                      <Loader2 className="mr-2 h-5 w-5 animate-spin" />
-                      初始化中...
-                    </>
-                  ) : createTaskMutation.isPending ? (
+                  {createTaskMutation.isPending ? (
                     <>
                       <Loader2 className="mr-2 h-5 w-5 animate-spin" />
                       创建中...

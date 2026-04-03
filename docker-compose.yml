@@ -25,7 +25,7 @@ services:
       - QINIU_BUCKET=${QINIU_BUCKET:-docker-build-files}
       - QINIU_REGION=${QINIU_REGION:-z0}
       # 业务配置
-      - FILE_EXPIRE_HOURS=5
+      - FILE_EXPIRE_HOURS=24
       - MAX_FILE_SIZE_MB=500
       - RATE_LIMIT_PER_MINUTE=30
       - BUILD_TIMEOUT_MINUTES=60

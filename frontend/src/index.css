@@ -231,7 +231,8 @@
   }
   .card-interactive::before {
     content: '';
-    @apply absolute inset-0 rounded-xl opacity-0 transition-opacity duration-300;
+    /* 装饰层必须穿透事件，否则整张卡片上的输入框、按钮都无法操作 */
+    @apply pointer-events-none absolute inset-0 z-0 rounded-xl opacity-0 transition-opacity duration-300;
     background: linear-gradient(135deg, hsl(var(--primary) / 0.05), transparent);
   }
   .card-interactive:hover::before {

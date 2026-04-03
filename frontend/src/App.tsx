@@ -17,6 +17,11 @@ function App() {
   const [currentPage, setCurrentPage] = useState<PageType>('build');
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
+  // 导航到构建页面
+  const navigateToBuild = () => {
+    setCurrentPage('build');
+  };
+
   const navItems = [
     { id: 'build' as const, label: '开始构建', icon: Layers },
     { id: 'my-tasks' as const, label: '我的任务', icon: null },
@@ -144,7 +149,7 @@ function App() {
       {/* Main Content */}
       <main className="animate-fade-in">
         {currentPage === 'build' && <BuildPage />}
-        {currentPage === 'my-tasks' && <MyTasksPage />}
+        {currentPage === 'my-tasks' && <MyTasksPage onNavigateToBuild={navigateToBuild} />}
         {currentPage === 'docs' && <DocsPage />}
       </main>
 

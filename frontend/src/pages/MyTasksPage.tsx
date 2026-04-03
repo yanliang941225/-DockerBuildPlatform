@@ -26,7 +26,11 @@ import { STATUS_INFO } from '@/types';
 import { formatTimeRemaining, formatDateTime, cn } from '@/lib/utils';
 import type { Task, LogEntry } from '@/types';
 
-export function MyTasksPage() {
+interface MyTasksPageProps {
+  onNavigateToBuild?: () => void;
+}
+
+export function MyTasksPage({ onNavigateToBuild }: MyTasksPageProps) {
   const { toast } = useToast();
   const [sessionReady, setSessionReady] = useState(false);
 
@@ -173,10 +177,14 @@ export function MyTasksPage() {
             </div>
             <h3 className="text-lg font-semibold mb-2">暂无构建任务</h3>
             <p className="text-muted-foreground mb-6">创建一个新任务开始构建镜像</p>
-            <Button asChild>
-              <a href="#" onClick={(e) => { e.preventDefault(); window.location.hash = ''; }}>
-                前往构建页面
-              </a>
+            <Button 
+              onClick={() => {
+                if (onNavigateToBuild) {
+                  onNavigateToBuild();
+                }
+              }}
+            >
+              前往构建页面
             </Button>
           </CardContent>
         </Card>
