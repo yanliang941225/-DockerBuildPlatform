@@ -25,6 +25,26 @@
 - 一次构建，多架构部署到不同服务器
 - 开发者快速验证 Dockerfile 的跨架构兼容性
 
+## 📷 界面预览
+
+### 配置构建任务
+
+选择目标架构（amd64 / arm64 / armv7）、填写镜像名称与版本，拖拽上传 Dockerfile 与构建上下文。
+
+![配置构建任务](docs/screenshots/build-page.png)
+
+### 我的任务
+
+查看与管理构建任务，总览进行中、成功与失败数量；支持刷新列表与跳转构建页。
+
+![我的构建任务](docs/screenshots/my-tasks.png)
+
+### 使用文档
+
+内置快速开始、文件上传、架构说明、构建流程、下载使用、安全说明与常见问题。
+
+![使用文档](docs/screenshots/docs-page.png)
+
 ## 🚀 快速开始
 
 ### 前置要求
@@ -104,6 +124,8 @@ docker-compose up -d
 │   │   └── lib/               # 工具函数
 │   └── package.json
 │
+├── docs/
+│   └── screenshots/            # README 界面截图
 ├── scripts/                    # 部署脚本
 ├── docker-compose.yml
 └── .env.example
