@@ -8,8 +8,7 @@ import {
   FileText, 
   Github, 
   Menu, 
-  X,
-  ChevronDown
+  X
 } from 'lucide-react';
 
 type PageType = 'build' | 'my-tasks' | 'docs';

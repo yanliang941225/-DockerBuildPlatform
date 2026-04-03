@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
 import { 
   BookOpen, 
   Monitor, 
@@ -10,13 +9,10 @@ import {
   Clock,
   Shield,
   Cpu,
-  FileCode,
   Package,
   HardDrive,
-  Users,
   HelpCircle,
   ChevronRight,
-  ExternalLink,
   Copy,
   Check,
   Layers
@@ -210,17 +206,19 @@ function InfoBox({
 // Section Title Component
 function SectionTitle({ 
   children, 
-  as: Component = 'h2' 
+  as: Component = 'h2',
+  className = ''
 }: { 
   children: React.ReactNode; 
   as?: 'h2' | 'h3' | 'h4';
+  className?: string;
 }) {
-  const classes = {
+  const defaultClasses = {
     h2: 'text-xl font-semibold mb-4',
     h3: 'text-lg font-semibold mb-3',
     h4: 'text-base font-semibold mb-2',
   };
-  return <Component className={classes[Component as keyof typeof classes]}>{children}</Component>;
+  return <Component className={`${defaultClasses[Component as keyof typeof defaultClasses]} ${className}`}>{children}</Component>;
 }
 
 // Step Component
