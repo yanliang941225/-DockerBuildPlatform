@@ -1,0 +1,74 @@
+version: '3.8'
+
+services:
+  # QEMU 注册服务 - 在 backend 之前运行
+  qemu-setup:
+    image: multiarch/qemu-user-static:latest
+    container_name: docker-build-qemu-setup
+    command: --reset -p yes --credential yes
+    restart: "no"
+    privileged: true
+
+  # 后端 API 服务
+  backend:
+    image: docker-build-backend:latest
+    container_name: docker-build-backend
+    ports:
+      - "8000:8000"
+    environment:
+      # 存储配置
+      - STORAGE_TYPE=${STORAGE_TYPE:-auto}  # 存储类型: auto, local, qiniu
+      - STORAGE_LOCAL_PATH=/tmp/docker-storage
+      # 七牛云配置
+      - QINIU_ACCESS_KEY=${QINIU_ACCESS_KEY:-}
+      - QINIU_SECRET_KEY=${QINIU_SECRET_KEY:-}
+      - QINIU_BUCKET=${QINIU_BUCKET:-docker-build-files}
+      - QINIU_REGION=${QINIU_REGION:-z0}
+      # 业务配置
+      - FILE_EXPIRE_HOURS=5
+      - MAX_FILE_SIZE_MB=500
+      - RATE_LIMIT_PER_MINUTE=30
+      - BUILD_TIMEOUT_MINUTES=60
+      - AUTO_REGISTER_QEMU=true
+    volumes:
+      # Docker socket - 用于构建镜像
+      # Linux 标准: /var/run/docker.sock
+      - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
+      # 本地存储卷（用于 STORAGE_TYPE=local 或 auto 降级）
+      - storage_data:/tmp/docker-storage
+      # 构建临时目录
+      - build_data:/tmp/docker-builds
+    depends_on:
+      qemu-setup:
+        condition: service_completed_successfully
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  # 前端 Web 服务
+  frontend:
+    image: docker-build-frontend:latest
+    container_name: docker-build-frontend
+    ports:
+      - "3000:80"
+    depends_on:
+      - backend
+    restart: unless-stopped
+
+  # 可选：Redis 用于会话和限流
+  # redis:
+  #   image: redis:7-alpine
+  #   container_name: docker-build-redis
+  #   ports:
+  #     - "6379:6379"
+  #   volumes:
+  #     - redis_data:/data
+  #   restart: unless-stopped
+
+volumes:
+  storage_data:
+  build_data:
+  # redis_data:

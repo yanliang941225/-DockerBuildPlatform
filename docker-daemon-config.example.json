@@ -1,0 +1,61 @@
+{
+  "message": "=== Docker Build Platform - Docker 镜像加速配置 ===",
+  "note": "将此文件配置到 Docker daemon 设置中，或使用下面的命令临时启用"
+}
+
+# ============================================
+# Docker 国内镜像加速配置
+# ============================================
+
+# 方法 1: 通过 Docker Desktop 配置
+# 打开 Docker Desktop -> Settings -> Docker Engine
+# 在右侧编辑器中添加以下配置:
+
+{
+  "registry-mirrors": [
+    "https://docker.npmmirror.com",
+    "https://mirror.ccs.tencentyun.com",
+    "https://dockerhub.azk8s.cn",
+    "https://reg-mirror.qiniu.com"
+  ]
+}
+
+# 方法 2: macOS/Linux 修改 daemon.json
+# sudo mkdir -p /etc/docker
+# sudo tee /etc/docker/daemon.json <<EOF
+# {
+#   "registry-mirrors": [
+#     "https://docker.npmmirror.com",
+#     "https://mirror.ccs.tencentyun.com",
+#     "https://dockerhub.azk8s.cn",
+#     "https://reg-mirror.qiniu.com"
+#   ]
+# }
+# EOF
+# sudo systemctl restart docker
+
+# 方法 3: Windows Docker Desktop
+# 右键托盘图标 -> Settings -> Docker Engine
+# 添加上述 JSON 配置
+
+# ============================================
+# 国内常用镜像源
+# ============================================
+
+# Docker 官方中国区镜像
+# https://registry.docker-cn.com
+
+# 阿里云容器镜像服务（需登录获取专属加速器）
+# https://help.aliyun.com/document_detail/60750.html
+
+# 腾讯云容器镜像服务
+# https://cloud.tencent.com/document/product/457/9113
+
+# 华为云容器镜像服务
+# https://support.huaweicloud.com/usermanual-swcr/swccr_01_0059.html
+
+# 网易云镜像中心
+# https://c.163yun.com
+
+# 中科大镜像
+# https://docker.mirrors.ustc.edu.cn
