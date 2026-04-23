@@ -30,8 +30,7 @@ class Settings(BaseSettings):
     ]
     
     # 存储配置
-    STORAGE_TYPE: str = "auto"  # 存储类型: auto, local, qiniu, oss, s3
-    STORAGE_LOCAL_PATH: str = "/tmp/docker-storage"  # 本地存储路径
+    STORAGE_TYPE: str = "local"  # 存储类型: auto, local, qiniu, oss, s3
     
     # 七牛云配置
     QINIU_ACCESS_KEY: str = ""
@@ -67,8 +66,17 @@ class Settings(BaseSettings):
     QEMU_ARCHITECTURES: List[str] = ["arm64", "arm/v7", "riscv64", "ppc64le"]
     
     # 存储路径
-    UPLOAD_DIR: str = "/tmp/uploads"
-    RESULT_DIR: str = "/tmp/results"
+    UPLOAD_DIR: str = "/tmp/uploads"  # 临时上传目录
+    RESULT_DIR: str = "/app/storage/results"  # 结果文件持久化存储
+    STORAGE_LOCAL_PATH: str = "/app/storage"  # 本地存储根路径
+
+    @property
+    def result_dir(self) -> str:
+        """动态计算结果目录路径"""
+        env_path = os.environ.get("RESULT_DIR")
+        if env_path:
+            return env_path
+        return self.RESULT_DIR
     
     @property
     def max_file_size_bytes(self) -> int:
@@ -78,14 +86,30 @@ class Settings(BaseSettings):
     def max_context_size_bytes(self) -> int:
         return self.MAX_CONTEXT_SIZE_MB * 1024 * 1024
     
+    @property
+    def storage_local_path(self) -> str:
+        """动态计算本地存储路径"""
+        # 优先使用环境变量
+        env_path = os.environ.get("STORAGE_LOCAL_PATH")
+        if env_path:
+            return env_path
+        return self.STORAGE_LOCAL_PATH
+    
+    @property
+    def app_root(self) -> str:
+        """获取应用根目录"""
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        return os.path.dirname(os.path.dirname(current_dir))
+    
     class Config:
-        env_file = ".env"
+        env_file = "/app/.env"
         case_sensitive = True
 
 
 settings = Settings()
 
 # 确保目录存在
+os.makedirs(settings.storage_local_path, exist_ok=True)
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
-os.makedirs(settings.RESULT_DIR, exist_ok=True)
+os.makedirs(settings.result_dir, exist_ok=True)
 os.makedirs(settings.BUILD_WORKDIR, exist_ok=True)

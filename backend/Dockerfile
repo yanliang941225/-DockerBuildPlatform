@@ -17,11 +17,11 @@ RUN sed -i 's/deb.debian.org/mirrors.tuna.tsinghua.edu.cn/g' /etc/apt/sources.li
     apt-get install -y --no-install-recommends curl ca-certificates gnupg lsb-release && \
     rm -rf /var/lib/apt/lists/*
 
-# 安装 Docker CLI 和 BuildX（使用 Docker 官方 apt 源）
+# 安装 Docker CLI 和 BuildX（使用 TUNA 镜像源）
 RUN install -m 0755 -d /etc/apt/keyrings && \
-    curl -fsSL https://download.docker.com/linux/debian/gpg -o /etc/apt/keyrings/docker.asc && \
+    curl -fsSL https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian/gpg -o /etc/apt/keyrings/docker.asc && \
     chmod a+r /etc/apt/keyrings/docker.asc && \
-    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://mirror.sjtu.edu.cn/docker-ce/linux/debian $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list && \
+    echo "deb [arch=amd64 signed-by=/etc/apt/keyrings/docker.asc] https://mirrors.tuna.tsinghua.edu.cn/docker-ce/linux/debian $(lsb_release -cs) stable" > /etc/apt/sources.list.d/docker.list && \
     apt-get update && \
     apt-get install -y --no-install-recommends docker-ce-cli docker-buildx-plugin && \
     rm -rf /var/lib/apt/lists/*
@@ -34,7 +34,7 @@ RUN pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua
 COPY . .
 
 # 创建必要的目录
-RUN mkdir -p /tmp/uploads /tmp/results /tmp/docker-builds /etc/docker ~/.docker
+RUN mkdir -p /tmp/uploads /tmp/results /tmp/docker-builds /etc/docker ~/.docker /app/storage
 
 # 配置 Docker daemon registry 镜像（影响 docker pull）
 RUN tee /etc/docker/daemon.json > /dev/null <<'EOF'

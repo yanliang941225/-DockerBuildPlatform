@@ -195,7 +195,7 @@ start_services() {
     
     local COMPOSE_CMD=$(get_compose_cmd)
     
-    # 启动服务（会自动构建）
+    # 启动服务
     $COMPOSE_CMD -f "$COMPOSE_FILE" up -d
     
     log_success "服务启动中..."
@@ -333,12 +333,7 @@ update_services() {
         git pull origin main 2>/dev/null || log_warn "无法拉取代码，请手动更新"
     fi
     
-    # 重新构建
-    log_info "重新构建镜像..."
-    $COMPOSE_CMD -f "$COMPOSE_FILE" build --no-cache
-    
     # 重启服务
-    log_info "重启服务..."
     $COMPOSE_CMD -f "$COMPOSE_FILE" up -d --remove-orphans
     
     log_success "更新完成！"

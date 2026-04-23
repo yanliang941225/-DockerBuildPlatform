@@ -56,15 +56,15 @@ class DockerBuilder:
         Args:
             task_id: 任务ID
         """
-        await task_manager.add_log(task_id, "info", "=" * 50)
-        await task_manager.add_log(task_id, "info", "开始构建 Docker 镜像...")
+        task_manager.add_log(task_id, "info", "=" * 50)
+        task_manager.add_log(task_id, "info", "开始构建 Docker 镜像...")
         
         try:
             # 检查 Docker
             self._ensure_init()
             
             # 获取任务信息
-            task = await task_manager.get_task(task_id)
+            task = task_manager.get_task(task_id)
             if not task:
                 raise ValueError("任务不存在")
             
@@ -72,34 +72,34 @@ class DockerBuilder:
             work_dir = os.path.join(settings.BUILD_WORKDIR, task_id)
             os.makedirs(work_dir, exist_ok=True)
             
-            await task_manager.add_log(task_id, "info", f"工作目录: {work_dir}")
+            task_manager.add_log(task_id, "info", f"工作目录: {work_dir}")
             
             # 下载 Dockerfile
-            await task_manager.add_log(task_id, "info", "下载 Dockerfile...")
+            task_manager.add_log(task_id, "info", "下载 Dockerfile...")
             dockerfile_content = await self._download_file(task.dockerfile_key)
             dockerfile_path = os.path.join(work_dir, "Dockerfile")
             with open(dockerfile_path, 'wb') as f:
                 f.write(dockerfile_content)
             
-            await task_manager.add_log(task_id, "success", "Dockerfile 已就绪")
+            task_manager.add_log(task_id, "success", "Dockerfile 已就绪")
             
             # 记录 FROM 行用于调试
             from_lines = [l for l in dockerfile_content.decode().split('\n') if l.strip().upper().startswith('FROM ')]
-            await task_manager.add_log(task_id, "info", f"原始 FROM: {from_lines[:3]}")
+            task_manager.add_log(task_id, "info", f"原始 FROM: {from_lines[:3]}")
             
             # 自动修复 Dockerfile 中的 FROM 指令，确保与目标架构匹配
             dockerfile_content = await self._fix_dockerfile_arch(dockerfile_content, task.target_arch)
             
             fixed_from_lines = [l for l in dockerfile_content.decode().split('\n') if l.strip().upper().startswith('FROM ')]
-            await task_manager.add_log(task_id, "info", f"修复后 FROM: {fixed_from_lines[:3]}")
+            task_manager.add_log(task_id, "info", f"修复后 FROM: {fixed_from_lines[:3]}")
             dockerfile_path = os.path.join(work_dir, "Dockerfile")
             with open(dockerfile_path, 'w') as f:
                 f.write(dockerfile_content.decode('utf-8') if isinstance(dockerfile_content, bytes) else dockerfile_content)
             
-            await task_manager.add_log(task_id, "info", f"Dockerfile 已调整为 {task.target_arch} 架构")
+            task_manager.add_log(task_id, "info", f"Dockerfile 已调整为 {task.target_arch} 架构")
             context_path = None
             if task.context_key:
-                await task_manager.add_log(task_id, "info", "下载构建上下文...")
+                task_manager.add_log(task_id, "info", "下载构建上下文...")
                 context_content = await self._download_file(task.context_key)
                 
                 # 解压到临时目录
@@ -114,16 +114,16 @@ class DockerBuilder:
                     await self._untar(context_content, context_extracted)
                 
                 context_path = context_extracted
-                await task_manager.add_log(task_id, "success", "构建上下文已解压")
+                task_manager.add_log(task_id, "success", "构建上下文已解压")
             
             # 确定构建上下文目录
             build_context = context_path or work_dir
 
             # 检查 BuildKit 支持
-            await task_manager.add_log(task_id, "info", f"目标架构: {task.target_arch}")
+            task_manager.add_log(task_id, "info", f"目标架构: {task.target_arch}")
 
             # 构建镜像
-            await task_manager.add_log(task_id, "info", "开始构建镜像（这可能需要几分钟）...")
+            task_manager.add_log(task_id, "info", "开始构建镜像（这可能需要几分钟）...")
 
             # 使用用户指定的镜像名和版本，如果没有则使用默认值
             if task.image_name:
@@ -134,7 +134,7 @@ class DockerBuilder:
             else:
                 image_tag = f"build-{task_id[:8]}:latest"
 
-            await task_manager.add_log(task_id, "info", f"镜像标签: {image_tag}")
+            task_manager.add_log(task_id, "info", f"镜像标签: {image_tag}")
 
             # 使用 Docker BuildKit 进行跨架构构建
             success = await self._build_with_buildx(
@@ -147,34 +147,34 @@ class DockerBuilder:
             
             if success:
                 # 导出镜像为 tar
-                await task_manager.add_log(task_id, "info", "导出镜像...")
+                task_manager.add_log(task_id, "info", "导出镜像...")
                 tar_path = await self._export_image(
                     task_id=task_id,
                     image_tag=image_tag,
                     target_arch=task.target_arch
                 )
-                
-                # 上传到存储
-                await task_manager.add_log(task_id, "info", "上传镜像...")
+
+                # 上传到存储（使用异步方法避免阻塞）
+                task_manager.add_log(task_id, "info", "上传镜像...")
                 result_key = f"results/{task_id}/{task.target_arch.split('/')[-1]}.tar"
-                
+
                 with open(tar_path, 'rb') as f:
                     tar_content = f.read()
-                
+
                 storage = get_storage()
-                upload_success = storage.upload_file(
+                upload_success = await storage.upload_file_async(
                     key=result_key,
                     content=tar_content,
                     content_type="application/x-tar"
                 )
-                
+
                 # 检查上传结果
                 if not upload_success:
                     raise RuntimeError(f"文件上传失败: {result_key}")
                 
                 # 更新任务状态
-                await task_manager.set_result(task_id, result_key)
-                await task_manager.add_log(
+                task_manager.set_result(task_id, result_key)
+                task_manager.add_log(
                     task_id, 
                     "success", 
                     f"镜像已上传: {result_key}"
@@ -213,10 +213,10 @@ class DockerBuilder:
                     "===========================================\n"
                 )
                 error_msg = f"{error_msg}\n{error_hint}"
-                await task_manager.add_log(task_id, "warning", error_hint)
+                task_manager.add_log(task_id, "warning", error_hint)
             
-            await task_manager.set_error(task_id, error_msg)
-            await task_manager.add_log(task_id, "error", f"构建失败: {error_msg}")
+            task_manager.set_error(task_id, error_msg)
+            task_manager.add_log(task_id, "error", f"构建失败: {error_msg}")
     
     async def _build_with_buildx(
         self,
@@ -239,7 +239,7 @@ class DockerBuilder:
         Returns:
             是否成功
         """
-        await task_manager.add_log(task_id, "info", "检查 BuildX 环境...")
+        task_manager.add_log(task_id, "info", "检查 BuildX 环境...")
         
         # 国内镜像源列表
         registry_mirrors = [
@@ -261,9 +261,9 @@ class DockerBuilder:
             )
             if result.returncode != 0:
                 raise RuntimeError("BuildX 不可用")
-            await task_manager.add_log(task_id, "info", f"BuildX 版本: {result.stdout.split()[2]}")
+            task_manager.add_log(task_id, "info", f"BuildX 版本: {result.stdout.split()[2]}")
         except Exception as e:
-            await task_manager.add_log(task_id, "error", f"BuildX 检查失败: {e}")
+            task_manager.add_log(task_id, "error", f"BuildX 检查失败: {e}")
             raise RuntimeError(f"BuildX 不可用: {e}")
         
         # 创建或使用现有的 builder
@@ -282,7 +282,7 @@ class DockerBuilder:
         if buildkitd_config_path:
             create_cmd.extend(["--buildkitd-config", buildkitd_config_path])
         
-        await task_manager.add_log(task_id, "info", f"创建 BuildX builder...")
+        task_manager.add_log(task_id, "info", f"创建 BuildX builder...")
         
         # 先尝试使用现有 builder
         subprocess.run(
@@ -306,9 +306,9 @@ class DockerBuilder:
             stderr = create_result.stderr.lower()
             # 如果 builder 已存在，忽略错误
             if "already exists" not in stderr:
-                await task_manager.add_log(task_id, "warning", f"创建 builder 警告: {create_result.stderr[:200]}")
+                task_manager.add_log(task_id, "warning", f"创建 builder 警告: {create_result.stderr[:200]}")
         
-        await task_manager.add_log(task_id, "info", "BuildX builder 已就绪")
+        task_manager.add_log(task_id, "info", "BuildX builder 已就绪")
         
         # 构建命令
         build_cmd = [
@@ -325,14 +325,14 @@ class DockerBuilder:
             "BUILDKIT_PROGRESS": "plain"
         }
         
-        await task_manager.add_log(task_id, "info", f"目标架构: {target_arch}")
-        await task_manager.add_log(task_id, "info", "使用 registry mirrors: " + ", ".join(registry_mirrors))
-        await task_manager.add_log(task_id, "info", "开始构建镜像（这可能需要几分钟）...")
-        await task_manager.add_log(task_id, "info", f"镜像标签: {image_tag}")
+        task_manager.add_log(task_id, "info", f"目标架构: {target_arch}")
+        task_manager.add_log(task_id, "info", "使用 registry mirrors: " + ", ".join(registry_mirrors))
+        task_manager.add_log(task_id, "info", "开始构建镜像（这可能需要几分钟）...")
+        task_manager.add_log(task_id, "info", f"镜像标签: {image_tag}")
         
         # 构建超时设置（从配置读取，转换为秒）
         BUILD_TIMEOUT = settings.BUILD_TIMEOUT_MINUTES * 60
-        await task_manager.add_log(task_id, "info", f"构建超时时间: {settings.BUILD_TIMEOUT_MINUTES} 分钟")
+        task_manager.add_log(task_id, "info", f"构建超时时间: {settings.BUILD_TIMEOUT_MINUTES} 分钟")
         
         # 使用 tee 来同时显示和捕获输出，同时设置 BUILDKIT_PROGRESS=plain
         build_env = {
@@ -368,14 +368,14 @@ class DockerBuilder:
                     # 根据内容类型选择日志级别
                     lower_line = line_text.lower()
                     if any(kw in lower_line for kw in ['error', 'failed', 'fatal']):
-                        await task_manager.add_log(task_id, "error", line_text[:200])
+                        task_manager.add_log(task_id, "error", line_text[:200])
                     elif any(kw in lower_line for kw in ['warn', 'warning']):
-                        await task_manager.add_log(task_id, "warning", line_text[:200])
+                        task_manager.add_log(task_id, "warning", line_text[:200])
                     elif 'step' in lower_line and ('#' in line_text):
                         # Docker 构建步骤 - 重要信息
-                        await task_manager.add_log(task_id, "info", line_text[:200])
+                        task_manager.add_log(task_id, "info", line_text[:200])
                     else:
-                        await task_manager.add_log(task_id, "info", line_text[:200])
+                        task_manager.add_log(task_id, "info", line_text[:200])
                         
             except Exception as e:
                 logger.error(f"读取输出流失败: {e}")
@@ -393,7 +393,7 @@ class DockerBuilder:
             await asyncio.wait_for(read_task, timeout=5)
             
         except asyncio.TimeoutError:
-            await task_manager.add_log(task_id, "error", f"构建超时（{BUILD_TIMEOUT}秒），终止进程")
+            task_manager.add_log(task_id, "error", f"构建超时（{BUILD_TIMEOUT}秒），终止进程")
             process.kill()
             await process.wait()
             read_task.cancel()
@@ -410,8 +410,8 @@ class DockerBuilder:
         full_output_text = '\n'.join(all_output).lower()
         for error_pattern, hint in hub_errors:
             if error_pattern.lower() in full_output_text:
-                await task_manager.add_log(task_id, "warning", hint)
-                await task_manager.add_log(task_id, "warning", 
+                task_manager.add_log(task_id, "warning", hint)
+                task_manager.add_log(task_id, "warning", 
                     "解决方案：\n"
                     "1) 配置 Docker daemon registry mirrors（编辑 /etc/docker/daemon.json）\n"
                     "2) 或配置 BuildKit（编辑 /etc/buildkitd.toml）\n"
@@ -430,10 +430,10 @@ class DockerBuilder:
         """导出镜像为 tar 文件"""
         arch_name = target_arch.split('/')[-1]
         tar_path = os.path.join(
-            settings.RESULT_DIR,
+            settings.result_dir,
             f"{task_id}_{arch_name}.tar"
         )
-        os.makedirs(settings.RESULT_DIR, exist_ok=True)
+        os.makedirs(settings.result_dir, exist_ok=True)
         
         # 导出超时设置（5分钟）
         EXPORT_TIMEOUT = 300
@@ -452,17 +452,17 @@ class DockerBuilder:
                 timeout=EXPORT_TIMEOUT
             )
         except asyncio.TimeoutError:
-            await task_manager.add_log(task_id, "error", f"导出超时（{EXPORT_TIMEOUT}秒），终止进程")
+            task_manager.add_log(task_id, "error", f"导出超时（{EXPORT_TIMEOUT}秒），终止进程")
             process.kill()
             await process.wait()
             raise RuntimeError("导出镜像超时")
         
         if process.returncode != 0:
             error_msg = stderr.decode() if stderr else "导出失败"
-            await task_manager.add_log(task_id, "error", f"导出镜像失败: {error_msg}")
+            task_manager.add_log(task_id, "error", f"导出镜像失败: {error_msg}")
             raise RuntimeError(f"导出镜像失败: {error_msg}")
         
-        await task_manager.add_log(task_id, "success", f"镜像已导出: {tar_path}")
+        task_manager.add_log(task_id, "success", f"镜像已导出: {tar_path}")
         
         # 清理镜像
         try:
@@ -473,16 +473,16 @@ class DockerBuilder:
         return tar_path
     
     async def _download_file(self, key: str) -> bytes:
-        """下载文件"""
+        """下载文件（异步）"""
         storage = get_storage()
-        
+
         try:
-            content = storage.download_file(key)
+            content = await storage.download_file_async(key)
             if content is not None:
                 return content
         except Exception as e:
             logger.error(f"下载文件失败: {e}")
-        
+
         raise FileNotFoundError(f"文件不存在: {key}")
     
     async def _fix_dockerfile_arch(self, content: bytes, target_arch: str) -> bytes:
@@ -536,6 +536,9 @@ class DockerBuilder:
         
         with zipfile.ZipFile(io.BytesIO(content)) as zf:
             zf.extractall(dest)
+        
+        # 检测并修复嵌套的根目录（如果归档有单层根目录则平铺）
+        await self._flatten_nested_archive(dest)
     
     async def _untar(self, content: bytes, dest: str):
         """解压 TAR 文件"""
@@ -544,6 +547,58 @@ class DockerBuilder:
         
         with tarfile.open(fileobj=io.BytesIO(content)) as tf:
             tf.extractall(dest)
+        
+        # 检测并修复嵌套的根目录（如果归档有单层根目录则平铺）
+        await self._flatten_nested_archive(dest)
+    
+    async def _flatten_nested_archive(self, dest: str):
+        """
+        检测并修复嵌套的根目录结构。
+        
+        如果归档解压后只有一个目录作为根目录（常见于从某个目录打包的情况），
+        则将内容平铺到 dest 目录，避免 COPY 指令找不到文件。
+        """
+        try:
+            entries = os.listdir(dest)
+            
+            # 如果解压后只有一个目录，可能是嵌套结构
+            if len(entries) == 1:
+                nested_dir = os.path.join(dest, entries[0])
+                
+                if os.path.isdir(nested_dir):
+                    # 检查嵌套目录是否直接包含 Dockerfile 或 src 等典型文件
+                    # 而不是更多子目录（如果是完整项目目录则不移动）
+                    nested_contents = os.listdir(nested_dir)
+                    
+                    has_dockerfile = 'Dockerfile' in nested_contents
+                    has_dockerignore = any('dockerignore' in f.lower() for f in nested_contents)
+                    
+                    # 如果嵌套目录包含 Dockerfile 或 .dockerignore，
+                    # 说明这是用户从项目根目录打包的，应该平铺
+                    if has_dockerfile or has_dockerignore:
+                        logger.info(f"检测到嵌套根目录 '{entries[0]}'，正在平铺到构建上下文根目录...")
+                        
+                        # 将嵌套目录的内容移动到 dest
+                        for item in nested_contents:
+                            src = os.path.join(nested_dir, item)
+                            dst = os.path.join(dest, item)
+                            
+                            # 如果目标已存在同名文件/目录，先删除
+                            if os.path.exists(dst):
+                                if os.path.isdir(dst):
+                                    shutil.rmtree(dst)
+                                else:
+                                    os.remove(dst)
+                            
+                            shutil.move(src, dst)
+                        
+                        # 删除空嵌套目录
+                        if not os.listdir(nested_dir):
+                            os.rmdir(nested_dir)
+                            
+                        logger.info(f"嵌套目录已平铺完成")
+        except Exception as e:
+            logger.warning(f"修复嵌套目录结构失败（非致命）: {e}")
     
     async def _cleanup(self, *paths):
         """清理临时文件"""

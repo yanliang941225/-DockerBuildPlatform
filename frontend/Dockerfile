@@ -7,8 +7,8 @@ FROM node:20-alpine AS build
 # 配置 Alpine 国内镜像（阿里云）
 RUN sed -i 's/dl-cdn.alpinelinux.org/mirrors.aliyun.com/g' /etc/apk/repositories
 
-# 安装依赖（git 用于某些 npm 包）
-RUN apk add --no-cache git
+# 安装依赖（git 用于某些 npm 包，以及构建工具）
+RUN apk add --no-cache git python3 make g++
 
 # 配置 npm 镜像（阿里云 npmmirror）
 RUN npm config set registry https://registry.npmmirror.com
@@ -24,7 +24,10 @@ RUN npm install --legacy-peer-deps
 # 复制源代码
 COPY . .
 
-# 构建
+# 验证关键文件存在
+RUN ls -la src/main.tsx index.html
+
+# 构建（跳过 tsc 检查以加快构建速度）
 RUN npm run build
 
 # 生产阶段

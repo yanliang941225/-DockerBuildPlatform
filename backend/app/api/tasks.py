@@ -326,16 +326,26 @@ async def upload_dockerfile(
     try:
         file_key = f"uploads/{task_id}/Dockerfile"
         storage = get_storage_instance()
-        storage.upload_file(
+
+        # 验证上传是否成功（使用异步版本避免阻塞事件循环）
+        upload_success = await storage.upload_file_async(
             key=file_key,
             content=content,
             content_type="text/plain"
         )
+
+        # 检查上传结果
+        if not upload_success:
+            raise RuntimeError(f"文件上传失败，可能是存储服务不可用")
+
+        # 验证文件确实存在
+        if not await storage.file_exists_async(file_key):
+            raise RuntimeError(f"文件上传后验证失败，存储中找不到该文件")
         
         # 更新任务
         await task_manager.update_dockerfile(task_id, file_key, safe_filename, len(content))
         
-        logger.info(f"任务 {task_id}: Dockerfile 上传成功")
+        logger.info(f"任务 {task_id}: Dockerfile 上传成功，已验证存在")
         
         return UploadResponse(
             success=True,
@@ -343,6 +353,8 @@ async def upload_dockerfile(
             size=len(content),
             message="Dockerfile 上传成功"
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"上传 Dockerfile 失败: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -392,16 +404,26 @@ async def upload_context(
         content_type = "application/zip" if safe_filename.endswith('.zip') else "application/gzip"
         
         storage = get_storage_instance()
-        storage.upload_file(
+        
+        # 验证上传是否成功（使用异步版本避免阻塞事件循环）
+        upload_success = await storage.upload_file_async(
             key=file_key,
             content=content,
             content_type=content_type
         )
         
+        # 检查上传结果
+        if not upload_success:
+            raise RuntimeError(f"文件上传失败，可能是存储服务不可用")
+        
+        # 验证文件确实存在
+        if not await storage.file_exists_async(file_key):
+            raise RuntimeError(f"文件上传后验证失败，存储中找不到该文件")
+        
         # 更新任务
         await task_manager.update_context(task_id, file_key, safe_filename, len(content))
         
-        logger.info(f"任务 {task_id}: 上下文文件上传成功")
+        logger.info(f"任务 {task_id}: 上下文文件上传成功，已验证存在")
         
         return UploadResponse(
             success=True,
@@ -409,6 +431,8 @@ async def upload_context(
             size=len(content),
             message="构建上下文上传成功"
         )
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"上传上下文文件失败: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
@@ -435,11 +459,27 @@ async def start_build(
     if not task:
         raise HTTPException(status_code=404, detail="任务不存在")
     
+    logger.info(f"[调试] 开始构建请求 - task_id: {task_id}, status: {task.status}, dockerfile_key: {task.dockerfile_key}")
+    
     if not task.dockerfile_key:
+        logger.error(f"[调试] Dockerfile 未上传 - task_id: {task_id}")
         raise HTTPException(status_code=400, detail="请先上传 Dockerfile")
     
     if task.status in [TaskStatus.BUILDING, TaskStatus.SUCCESS]:
         raise HTTPException(status_code=400, detail="任务已在执行或已完成")
+    
+    # 验证 Dockerfile 文件是否真的存在于存储中
+    try:
+        storage = get_storage_instance()
+        if not await storage.file_exists_async(task.dockerfile_key):
+            logger.error(f"[调试] Dockerfile 文件不存在于存储中 - key: {task.dockerfile_key}")
+            raise HTTPException(status_code=400, detail="Dockerfile 文件丢失，请重新上传")
+        logger.info(f"[调试] Dockerfile 验证通过 - key: {task.dockerfile_key}")
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[调试] 验证 Dockerfile 时出错: {e}")
+        raise HTTPException(status_code=500, detail=f"验证 Dockerfile 时出错: {str(e)}")
     
     # 更新状态为构建中
     await task_manager.update_status(task_id, TaskStatus.BUILDING)
@@ -563,11 +603,11 @@ async def cancel_task(task_id: str):
     try:
         storage = get_storage_instance()
         if task.dockerfile_key:
-            storage.delete_file(task.dockerfile_key)
+            await storage.delete_file_async(task.dockerfile_key)
         if task.context_key:
-            storage.delete_file(task.context_key)
+            await storage.delete_file_async(task.context_key)
         if task.result_key:
-            storage.delete_file(task.result_key)
+            await storage.delete_file_async(task.result_key)
     except Exception as e:
         logger.warning(f"清理文件失败: {e}")
     

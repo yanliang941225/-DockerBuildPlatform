@@ -6,6 +6,7 @@ from abc import ABC, abstractmethod
 from typing import Optional, List
 from enum import Enum
 from datetime import datetime
+import asyncio
 import logging
 
 from app.core.config import settings
@@ -23,7 +24,7 @@ class StorageType(Enum):
 
 class BaseStorage(ABC):
     """存储服务抽象基类"""
-    
+
     @abstractmethod
     def upload_file(
         self,
@@ -31,34 +32,66 @@ class BaseStorage(ABC):
         content: bytes,
         content_type: str = "application/octet-stream"
     ) -> bool:
-        """上传文件"""
+        """上传文件（同步版本，保留向后兼容）"""
         pass
-    
+
+    async def upload_file_async(
+        self,
+        key: str,
+        content: bytes,
+        content_type: str = "application/octet-stream"
+    ) -> bool:
+        """上传文件（异步版本，推荐在 async 上下文中使用）"""
+        import asyncio
+        return await asyncio.to_thread(
+            self.upload_file, key, content, content_type
+        )
+
     @abstractmethod
     def download_file(self, key: str) -> Optional[bytes]:
         """下载文件"""
         pass
-    
+
+    async def download_file_async(self, key: str) -> Optional[bytes]:
+        """下载文件（异步版本）"""
+        import asyncio
+        return await asyncio.to_thread(self.download_file, key)
+
     @abstractmethod
     def delete_file(self, key: str) -> bool:
         """删除文件"""
         pass
-    
+
+    async def delete_file_async(self, key: str) -> bool:
+        """删除文件（异步版本）"""
+        import asyncio
+        return await asyncio.to_thread(self.delete_file, key)
+
     @abstractmethod
     def file_exists(self, key: str) -> bool:
         """检查文件是否存在"""
         pass
-    
+
+    async def file_exists_async(self, key: str) -> bool:
+        """检查文件是否存在（异步版本）"""
+        import asyncio
+        return await asyncio.to_thread(self.file_exists, key)
+
     @abstractmethod
     def get_download_url(self, key: str, expires: int = 3600) -> str:
         """获取下载链接"""
         pass
-    
+
     @abstractmethod
     def list_files(self, prefix: str = "") -> List[str]:
         """列出文件"""
         pass
-    
+
+    async def list_files_async(self, prefix: str = "") -> List[str]:
+        """列出文件（异步版本）"""
+        import asyncio
+        return await asyncio.to_thread(self.list_files, prefix)
+
     @abstractmethod
     def is_configured(self) -> bool:
         """检查存储是否已配置"""
@@ -68,6 +101,11 @@ class BaseStorage(ABC):
     def get_file_mtime(self, key: str) -> Optional[datetime]:
         """获取文件修改时间"""
         pass
+
+    async def get_file_mtime_async(self, key: str) -> Optional[datetime]:
+        """获取文件修改时间（异步版本）"""
+        import asyncio
+        return await asyncio.to_thread(self.get_file_mtime, key)
 
     @property
     @abstractmethod
@@ -107,38 +145,9 @@ class LocalStorage(BaseStorage):
         content: bytes,
         content_type: str = "application/octet-stream"
     ) -> bool:
+        """同步版本的上传（纯同步函数，不含 asyncio.to_thread）"""
         try:
-            import os
-            full_path = self._get_full_path(key)
-            
-            logger.info(f"准备上传文件: key={key}, size={len(content)} bytes, path={full_path}")
-            
-            # 创建目录
-            dir_path = os.path.dirname(full_path)
-            os.makedirs(dir_path, exist_ok=True)
-            logger.info(f"目录已创建/确认: {dir_path}")
-            
-            # 检查磁盘空间
-            stat = os.statvfs(dir_path)
-            free_space = stat.f_bavail * stat.f_frsize
-            logger.info(f"磁盘空间: 可用 {free_space / (1024**3):.2f} GB, 需要 {len(content) / (1024**3):.2f} GB")
-            
-            if free_space < len(content):
-                logger.error(f"磁盘空间不足: 需要 {len(content)} bytes, 可用 {free_space} bytes")
-                return False
-            
-            with open(full_path, 'wb') as f:
-                f.write(content)
-            
-            # 验证文件写入成功
-            actual_size = os.path.getsize(full_path)
-            if actual_size != len(content):
-                logger.error(f"文件大小不匹配: 期望 {len(content)}, 实际 {actual_size}")
-                os.remove(full_path)
-                return False
-            
-            logger.info(f"文件上传成功: {key}, 大小: {actual_size} bytes")
-            return True
+            return self._write_file(key, content)
         except PermissionError as e:
             logger.error(f"权限不足，无法写入文件 {key}: {e}")
             return False
@@ -148,8 +157,80 @@ class LocalStorage(BaseStorage):
         except Exception as e:
             logger.error(f"本地文件上传失败: {type(e).__name__}: {e}")
             return False
-    
+
+    async def upload_file_async(
+        self,
+        key: str,
+        content: bytes,
+        content_type: str = "application/octet-stream",
+        timeout: float = 30.0
+    ) -> bool:
+        """异步版本的上传，带超时保护"""
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(self._write_file, key, content),
+                timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            logger.error(f"文件上传超时（{timeout}s）: {key}")
+            return False
+        except PermissionError as e:
+            logger.error(f"权限不足，无法写入文件 {key}: {e}")
+            return False
+        except OSError as e:
+            logger.error(f"操作系统错误，上传文件 {key} 失败: {e}")
+            return False
+        except Exception as e:
+            logger.error(f"本地文件上传失败: {type(e).__name__}: {e}")
+            return False
+
+    def _write_file(self, key: str, content: bytes) -> bool:
+        """执行实际的文件写入操作"""
+        import os
+
+        full_path = self._get_full_path(key)
+        logger.info(f"准备上传文件: key={key}, size={len(content)} bytes, path={full_path}")
+
+        dir_path = os.path.dirname(full_path)
+        os.makedirs(dir_path, exist_ok=True)
+        logger.info(f"目录已创建/确认: {dir_path}")
+
+        stat = os.statvfs(dir_path)
+        free_space = stat.f_bavail * stat.f_frsize
+        logger.info(f"磁盘空间: 可用 {free_space / (1024**3):.2f} GB, 需要 {len(content) / (1024**3):.2f} GB")
+
+        if free_space < len(content):
+            logger.error(f"磁盘空间不足: 需要 {len(content)} bytes, 可用 {free_space} bytes")
+            return False
+
+        with open(full_path, 'wb') as f:
+            f.write(content)
+
+        actual_size = os.path.getsize(full_path)
+        if actual_size != len(content):
+            logger.error(f"文件大小不匹配: 期望 {len(content)}, 实际 {actual_size}")
+            os.remove(full_path)
+            return False
+
+        logger.info(f"文件上传成功: {key}, 大小: {actual_size} bytes")
+        return True
+
+    def _read_file(self, key: str) -> Optional[bytes]:
+        """执行实际的文件读取操作"""
+        full_path = self._get_full_path(key)
+        with open(full_path, 'rb') as f:
+            return f.read()
+
+    async def download_file_async(self, key: str) -> Optional[bytes]:
+        """异步版本的下载"""
+        try:
+            return await asyncio.to_thread(self._read_file, key)
+        except Exception as e:
+            logger.error(f"本地文件下载失败: {e}")
+            return None
+
     def download_file(self, key: str) -> Optional[bytes]:
+        """同步版本的下载"""
         try:
             full_path = self._get_full_path(key)
             with open(full_path, 'rb') as f:
@@ -406,8 +487,8 @@ class StorageFactory:
         
         # 强制本地存储
         if storage_type == "local":
-            cls._instance = LocalStorage(base_dir=settings.STORAGE_LOCAL_PATH)
-            logger.info("使用本地存储")
+            cls._instance = LocalStorage(base_dir=settings.storage_local_path)
+            logger.info(f"使用本地存储: {settings.storage_local_path}")
             return cls._instance
         
         # 强制七牛云
@@ -419,7 +500,7 @@ class StorageFactory:
                 return cls._instance
             else:
                 logger.error("配置了七牛云但凭证无效，将使用本地存储")
-                cls._instance = LocalStorage(base_dir=settings.STORAGE_LOCAL_PATH)
+                cls._instance = LocalStorage(base_dir=settings.storage_local_path)
                 return cls._instance
         
         # 自动选择
@@ -431,14 +512,14 @@ class StorageFactory:
                 return cls._instance
         
         # 默认使用本地存储
-        cls._instance = LocalStorage(base_dir=settings.STORAGE_LOCAL_PATH)
-        logger.info("使用本地存储")
+        cls._instance = LocalStorage(base_dir=settings.storage_local_path)
+        logger.info(f"使用本地存储: {settings.storage_local_path}")
         return cls._instance
     
     @classmethod
     def get_local_storage(cls) -> LocalStorage:
         """获取本地存储实例"""
-        return LocalStorage(base_dir=settings.STORAGE_LOCAL_PATH)
+        return LocalStorage(base_dir=settings.storage_local_path)
     
     @classmethod
     def reset(cls):

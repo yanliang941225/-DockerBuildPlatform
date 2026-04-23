@@ -195,7 +195,21 @@ class TaskManager:
                 task.dockerfile_key = key
                 task.dockerfile_name = filename
                 task.metadata['dockerfile_size'] = size
-                asyncio.create_task(self._add_log_async(task_id, "info", f"Dockerfile 已上传: {filename} ({size} bytes)"))
+                # 在锁内直接添加日志（不需要再次加锁）
+                log_entry = {
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "level": "info",
+                    "message": f"Dockerfile 已上传: {filename} ({size} bytes)"
+                }
+                task.logs.append(log_entry)
+                log_entry2 = {
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "level": "info",
+                    "message": f"Dockerfile key 已设置: {key}"
+                }
+                task.logs.append(log_entry2)
+                if len(task.logs) > 1000:
+                    task.logs = task.logs[-1000:]
                 asyncio.create_task(self._save_task_async(task))
     
     async def update_context(
@@ -212,7 +226,15 @@ class TaskManager:
                 task.context_key = key
                 task.context_name = filename
                 task.metadata['context_size'] = size
-                asyncio.create_task(self._add_log_async(task_id, "info", f"构建上下文已上传: {filename} ({size} bytes)"))
+                # 在锁内直接添加日志（不需要再次加锁）
+                log_entry = {
+                    "timestamp": datetime.utcnow().isoformat(),
+                    "level": "info",
+                    "message": f"构建上下文已上传: {filename} ({size} bytes)"
+                }
+                task.logs.append(log_entry)
+                if len(task.logs) > 1000:
+                    task.logs = task.logs[-1000:]
                 asyncio.create_task(self._save_task_async(task))
     
     async def set_result(self, task_id: str, result_key: str):
@@ -238,11 +260,7 @@ class TaskManager:
                 await self._save_task(task)
     
     async def add_log(self, task_id: str, level: str, message: str):
-        """添加日志条目"""
-        await self._add_log(task_id, level, message)
-    
-    async def _add_log(self, task_id: str, level: str, message: str):
-        """内部：添加日志条目"""
+        """添加日志条目（线程安全版本）"""
         async with self._lock:
             task = self._tasks.get(task_id)
             if task:
@@ -252,7 +270,6 @@ class TaskManager:
                     "message": message
                 }
                 task.logs.append(log_entry)
-                # 限制日志数量（只在持有锁时检查一次）
                 if len(task.logs) > 1000:
                     task.logs = task.logs[-1000:]
     
@@ -356,11 +373,11 @@ class TaskManager:
     
     async def _save_task(self, task: Task):
         """保存任务到持久化存储"""
-        self._save_tasks()
+        await asyncio.to_thread(self._save_tasks)
 
     async def _save_task_async(self, task: Task):
         """异步保存任务到持久化存储"""
-        self._save_tasks()
+        await asyncio.to_thread(self._save_tasks)
 
     async def _add_log_async(self, task_id: str, level: str, message: str):
         """异步添加日志条目"""

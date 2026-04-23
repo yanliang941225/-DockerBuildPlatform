@@ -17,8 +17,7 @@ services:
       - "8000:8000"
     environment:
       # 存储配置
-      - STORAGE_TYPE=${STORAGE_TYPE:-auto}  # 存储类型: auto, local, qiniu
-      - STORAGE_LOCAL_PATH=/tmp/docker-storage
+      - STORAGE_TYPE=${STORAGE_TYPE:-local}  # 存储类型: auto, local, qiniu
       # 七牛云配置
       - QINIU_ACCESS_KEY=${QINIU_ACCESS_KEY:-}
       - QINIU_SECRET_KEY=${QINIU_SECRET_KEY:-}
@@ -35,9 +34,11 @@ services:
       # Linux 标准: /var/run/docker.sock
       - ${DOCKER_SOCKET_PATH:-/var/run/docker.sock}:/var/run/docker.sock
       # 本地存储卷（用于 STORAGE_TYPE=local 或 auto 降级）
-      - storage_data:/tmp/docker-storage
+      - storage_data:/app/storage
       # 构建临时目录
       - build_data:/tmp/docker-builds
+      # 环境变量文件
+      - ./.env:/app/.env:ro
     depends_on:
       qemu-setup:
         condition: service_completed_successfully

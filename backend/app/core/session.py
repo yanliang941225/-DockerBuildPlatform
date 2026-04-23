@@ -111,6 +111,11 @@ class SessionManager:
         except Exception as e:
             logger.error(f"保存会话失败: {e}")
     
+    async def _save_sessions_async(self):
+        """异步保存会话到磁盘"""
+        import asyncio
+        await asyncio.to_thread(self._save_sessions)
+    
     async def create_session(
         self,
         fingerprint: str,
@@ -127,7 +132,8 @@ class SessionManager:
                 if existing and not self._is_expired(existing):
                     # 更新活跃时间，返回现有会话
                     existing.last_active = time.time()
-                    self._save_sessions()  # 持久化
+                    # 持久化改为异步，不阻塞请求
+                    asyncio.create_task(self._save_sessions_async())
                     return existing
             
             # 创建新会话
@@ -151,8 +157,8 @@ class SessionManager:
                 self._ip_index[ip_address] = []
             self._ip_index[ip_address].append(session_id)
             
-            # 持久化
-            self._save_sessions()
+            # 持久化改为异步，不阻塞请求
+            asyncio.create_task(self._save_sessions_async())
             
             logger.info(f"创建新会话: {session_id[:8]}..., IP: {ip_address}")
             

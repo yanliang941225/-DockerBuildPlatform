@@ -1,4 +1,4 @@
-import { useState, useCallback, useEffect } from 'react';
+import { useState, useCallback, useEffect, useRef } from 'react';
 import { useQuery, useMutation } from '@tanstack/react-query';
 import { useToast } from '@/hooks/useToast';
 import { apiClient } from '@/lib/api';
@@ -44,6 +44,17 @@ export function BuildPage() {
   const [progress, setProgress] = useState<BuildProgress | null>(null);
   const [sessionReady, setSessionReady] = useState(false);
   const [restoringTask, setRestoringTask] = useState(false);
+  // Track if we have pending upload for each file type
+  const [dockerfileUploading, setDockerfileUploading] = useState(false);
+  const [contextUploading, setContextUploading] = useState(false);
+  const [dockerfileUploadProgress, setDockerfileUploadProgress] = useState(0);
+  const [contextUploadProgress, setContextUploadProgress] = useState(0);
+
+  // 使用 ref 避免闭包陷阱，确保 mutations 可以访问最新的 currentTask
+  const currentTaskRef = useRef(currentTask);
+  useEffect(() => {
+    currentTaskRef.current = currentTask;
+  }, [currentTask]);
 
   // 恢复持久化的任务
   const restorePersistedTask = useCallback(async () => {
@@ -53,28 +64,22 @@ export function BuildPage() {
     try {
       const savedState: PersistedTaskState = JSON.parse(saved);
       setRestoringTask(true);
-      
+
       // 从服务器获取最新任务状态
       const task = await apiClient.getTask(savedState.taskId);
-      
+
       // 只恢复进行中的任务
       if (task && ['pending', 'uploading', 'building'].includes(task.status)) {
         setCurrentTask(task);
         setSelectedArch(savedState.arch as Architecture);
         setImageName(savedState.imageName);
         setImageTag(savedState.imageTag);
-        
-        // 如果 Dockerfile 已上传，模拟已上传状态
-        if (savedState.dockerfileUploaded) {
-          updateTask({ dockerfile_uploaded: true });
-        }
-        if (savedState.contextUploaded) {
-          updateTask({ context_uploaded: true });
-        }
-        
+
         toast({
           title: '任务已恢复',
-          description: '之前的构建任务已恢复',
+          description: task.dockerfile_uploaded
+            ? '构建任务已恢复'
+            : '构建任务已恢复，请继续上传文件',
         });
       } else {
         // 任务已完成或不存在，清除持久化状态
@@ -137,6 +142,22 @@ export function BuildPage() {
   useEffect(() => {
     if (progressData) {
       setProgress(progressData);
+      // 同步上传状态（从 progressData 更新 currentTask）
+      if (currentTask) {
+        const hasChanges = 
+          currentTask.dockerfile_uploaded !== progressData.logs.some(l => l.message.includes('Dockerfile 已上传')) ||
+          currentTask.context_uploaded !== progressData.logs.some(l => l.message.includes('构建上下文已上传'));
+        
+        // 如果日志中显示文件已上传但前端状态未更新，则刷新任务
+        if (hasChanges && progressData.status === 'pending') {
+          apiClient.getTask(currentTask.task_id).then((freshTask) => {
+            if (freshTask.dockerfile_uploaded !== currentTask.dockerfile_uploaded ||
+                freshTask.context_uploaded !== currentTask.context_uploaded) {
+              setCurrentTask(freshTask);
+            }
+          }).catch(() => {});
+        }
+      }
     }
   }, [progressData]);
 
@@ -170,18 +191,47 @@ export function BuildPage() {
     },
   });
 
-  // Upload Dockerfile mutation
+  // Upload Dockerfile mutation - 使用 ref 避免闭包陷阱
   const uploadDockerfileMutation = useMutation({
     mutationFn: ({ taskId, file }: { taskId: string; file: File }) =>
-      apiClient.uploadDockerfile(taskId, file),
-    onSuccess: (data) => {
-      updateTask({ dockerfile_uploaded: true });
+      apiClient.uploadDockerfile(taskId, file, (progress) => {
+        setDockerfileUploadProgress(progress);
+      }),
+    onMutate: () => {
+      setDockerfileUploading(true);
+      setDockerfileUploadProgress(0);
+    },
+    onSuccess: async (data, _vars, context) => {
+      // 优先使用 mutation 变量中的 taskId，避免闭包问题
+      const taskIdToUse = context?.taskId || currentTaskRef.current?.task_id;
+      if (taskIdToUse) {
+        const freshTask = await apiClient.getTask(taskIdToUse);
+        setCurrentTask(freshTask);
+        // 确保 UI 立即反映 dockerfile_uploaded 状态
+        if (freshTask.dockerfile_uploaded) {
+          setDockerfileUploadProgress(100);
+        }
+      } else {
+        setDockerfileUploadProgress(100);
+      }
+      setDockerfileUploading(false);
       toast({
         title: 'Dockerfile 上传成功',
         description: `${data.filename} (${data.size} bytes)`,
       });
     },
-    onError: (error) => {
+    onError: (error, _vars, context) => {
+      // 优先使用 mutation 变量中的 taskId
+      const taskIdToUse = context?.taskId || currentTaskRef.current?.task_id;
+      if (taskIdToUse) {
+        apiClient.getTask(taskIdToUse).then((freshTask) => {
+          setCurrentTask(freshTask);
+        }).catch(() => {});
+      }
+      // 上传失败时清除文件状态和进度
+      setDockerfile(null);
+      setDockerfileUploadProgress(0);
+      setDockerfileUploading(false);
       toast({
         title: '上传失败',
         description: error instanceof Error ? error.message : '请重试',
@@ -190,18 +240,45 @@ export function BuildPage() {
     },
   });
 
-  // Upload context mutation
+  // Upload context mutation - 使用 ref 避免闭包陷阱
   const uploadContextMutation = useMutation({
     mutationFn: ({ taskId, file }: { taskId: string; file: File }) =>
-      apiClient.uploadContext(taskId, file),
-    onSuccess: (data) => {
-      updateTask({ context_uploaded: true });
+      apiClient.uploadContext(taskId, file, (progress) => {
+        setContextUploadProgress(progress);
+      }),
+    onMutate: () => {
+      setContextUploading(true);
+      setContextUploadProgress(0);
+    },
+    onSuccess: async (data, _vars, context) => {
+      // 优先使用 mutation 变量中的 taskId，避免闭包问题
+      const taskIdToUse = context?.taskId || currentTaskRef.current?.task_id;
+      if (taskIdToUse) {
+        const freshTask = await apiClient.getTask(taskIdToUse);
+        setCurrentTask(freshTask);
+        // 确保 UI 立即反映 context_uploaded 状态
+        if (freshTask.context_uploaded) {
+          setContextUploadProgress(100);
+        }
+      }
+      setContextUploading(false);
       toast({
         title: '上下文文件上传成功',
         description: `${data.filename} (${data.size} bytes)`,
       });
     },
-    onError: (error) => {
+    onError: (error, _vars, context) => {
+      // 优先使用 mutation 变量中的 taskId
+      const taskIdToUse = context?.taskId || currentTaskRef.current?.task_id;
+      if (taskIdToUse) {
+        apiClient.getTask(taskIdToUse).then((freshTask) => {
+          setCurrentTask(freshTask);
+        }).catch(() => {});
+      }
+      // 上传失败时清除文件状态和进度
+      setContextFile(null);
+      setContextUploadProgress(0);
+      setContextUploading(false);
       toast({
         title: '上传失败',
         description: error instanceof Error ? error.message : '请重试',
@@ -212,8 +289,22 @@ export function BuildPage() {
 
   // Start build mutation
   const startBuildMutation = useMutation({
-    mutationFn: (taskId: string) => apiClient.startBuild(taskId),
+    mutationFn: async (taskId: string) => {
+      // 在开始构建前，再次从服务器获取最新任务状态
+      const freshTask = await apiClient.getTask(taskId);
+      
+      // 验证 Dockerfile 是否确实已上传
+      if (!freshTask.dockerfile_uploaded) {
+        throw new Error('Dockerfile 未上传或上传未完成，请刷新页面重试');
+      }
+      
+      return apiClient.startBuild(taskId);
+    },
     onMutate: () => {
+      // 立即更新任务状态，防止重复点击
+      if (currentTask) {
+        setCurrentTask({ ...currentTask, status: 'building' });
+      }
       setIsBuilding(true);
     },
     onSuccess: () => {
@@ -225,6 +316,10 @@ export function BuildPage() {
       });
     },
     onError: (error) => {
+      // 构建启动失败，恢复任务状态
+      if (currentTask) {
+        setCurrentTask({ ...currentTask, status: 'pending' });
+      }
       setIsBuilding(false);
       toast({
         title: '启动失败',
@@ -257,21 +352,41 @@ export function BuildPage() {
 
   // Handle Dockerfile selection
   const handleDockerfileSelect = useCallback(async (file: File | null) => {
+    // 如果正在上传中，不允许选择新文件
+    if (dockerfileUploading || uploadDockerfileMutation.isPending) {
+      toast({
+        title: '请等待',
+        description: 'Dockerfile 正在上传中，请稍候...',
+      });
+      return;
+    }
+
     setDockerfile(file);
-    
+
     if (file && currentTask) {
       uploadDockerfileMutation.mutate({ taskId: currentTask.task_id, file });
     }
-  }, [currentTask, uploadDockerfileMutation]);
+  }, [currentTask, uploadDockerfileMutation, dockerfileUploading, uploadDockerfileMutation.isPending, toast]);
 
-  // Handle context selection
+  // Handle context selection - 使用 ref 避免闭包陷阱
   const handleContextSelect = useCallback(async (file: File | null) => {
-    setContextFile(file);
-    
-    if (file && currentTask) {
-      uploadContextMutation.mutate({ taskId: currentTask.task_id, file });
+    // 如果正在上传中，不允许选择新文件
+    if (contextUploading || uploadContextMutation.isPending) {
+      toast({
+        title: '请等待',
+        description: '上下文文件正在上传中，请稍候...',
+      });
+      return;
     }
-  }, [currentTask, uploadContextMutation]);
+
+    setContextFile(file);
+
+    // 使用 ref 获取最新的 currentTask，避免闭包问题
+    const latestTask = currentTaskRef.current;
+    if (file && latestTask) {
+      uploadContextMutation.mutate({ taskId: latestTask.task_id, file });
+    }
+  }, [uploadContextMutation, contextUploading, uploadContextMutation.isPending, toast]);
 
   // Create new task
   const handleCreateTask = () => {
@@ -415,6 +530,10 @@ export function BuildPage() {
                   selectedFile={dockerfile}
                   title="拖拽 Dockerfile 到这里"
                   description="支持: Dockerfile, .dockerfile, Dockerfile.dev"
+                  uploadProgress={dockerfileUploadProgress}
+                  isUploading={uploadDockerfileMutation.isPending}
+                  isPendingTask={dockerfile !== null && !currentTask && !uploadDockerfileMutation.isPending}
+                  disabled={dockerfileUploading || uploadDockerfileMutation.isPending}
                 />
               </div>
 
@@ -430,6 +549,10 @@ export function BuildPage() {
                   selectedFile={contextFile}
                   title="拖拽上下文文件到这里"
                   description="支持: .zip, .tar, .tar.gz, .tgz"
+                  uploadProgress={contextUploadProgress}
+                  isUploading={uploadContextMutation.isPending}
+                  isPendingTask={contextFile !== null && !currentTask && !uploadContextMutation.isPending}
+                  disabled={contextUploading || uploadContextMutation.isPending}
                 />
                 <p className="flex items-start gap-2 text-xs text-muted-foreground bg-muted/30 p-3 rounded-lg">
                   <span className="text-primary mt-0.5">💡</span>
@@ -549,11 +672,8 @@ export function BuildPage() {
             onDownload={handleDownload}
             onDelete={handleDelete}
             onReset={handleReset}
-            canStartBuild={
-              ['pending'].includes(currentTask.status) &&
-              currentTask.dockerfile_uploaded
-            }
             isStarting={startBuildMutation.isPending}
+            isUploading={uploadDockerfileMutation.isPending || uploadContextMutation.isPending}
           />
         </div>
       )}
