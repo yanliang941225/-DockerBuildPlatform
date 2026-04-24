@@ -57,7 +57,7 @@ class Settings(BaseSettings):
     MAX_TASKS_PER_IP: int = 50             # 单 IP 最大任务数
     
     # 构建配置
-    BUILD_TIMEOUT_MINUTES: int = 60
+    BUILD_TIMEOUT_MINUTES: int = 300
     BUILD_WORKERS: int = 4
     BUILD_WORKDIR: str = "/tmp/docker-builds"
     AUTO_REGISTER_QEMU: bool = True  # 启动时自动注册 QEMU

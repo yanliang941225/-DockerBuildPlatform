@@ -16,6 +16,8 @@ services:
     ports:
       - "8000:8000"
     environment:
+      # 时区配置
+      - TZ=Asia/Shanghai
       # 存储配置
       - STORAGE_TYPE=${STORAGE_TYPE:-local}  # 存储类型: auto, local, qiniu
       # 七牛云配置
@@ -27,7 +29,7 @@ services:
       - FILE_EXPIRE_HOURS=24
       - MAX_FILE_SIZE_MB=500
       - RATE_LIMIT_PER_MINUTE=30
-      - BUILD_TIMEOUT_MINUTES=60
+      - BUILD_TIMEOUT_MINUTES=300
       - AUTO_REGISTER_QEMU=true
     volumes:
       # Docker socket - 用于构建镜像
@@ -53,6 +55,8 @@ services:
   frontend:
     image: docker-build-frontend:latest
     container_name: docker-build-frontend
+    environment:
+      - TZ=Asia/Shanghai
     ports:
       - "3000:80"
     depends_on:
